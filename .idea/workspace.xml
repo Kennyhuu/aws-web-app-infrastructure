@@ -1,12 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="ChangeListManager">
-    <list default="true" id="51e438c1-8cb4-4794-99b2-41ea47ac8df7" name="Changes" comment="add first entry creating VPC and Task.pdf">
-      <change afterPath="$PROJECT_DIR$/.idea/inspectionProfiles/Project_Default.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/inspectionProfiles/profiles_settings.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/vcs.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
+    <list default="true" id="51e438c1-8cb4-4794-99b2-41ea47ac8df7" name="Changes" comment="add add Webserver, Bastionhost and mysql">
+      <change afterPath="$PROJECT_DIR$/image/README.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/image/bastion_to_webserver.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/image/sg_rds.png" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -94,7 +93,15 @@
       <option name="project" value="LOCAL" />
       <updated>1780672926400</updated>
     </task>
-    <option name="localTasksCounter" value="3" />
+    <task id="LOCAL-00003" summary="add add Webserver, Bastionhost and mysql">
+      <option name="closed" value="true" />
+      <created>1780674540343</created>
+      <option name="number" value="00003" />
+      <option name="presentableId" value="LOCAL-00003" />
+      <option name="project" value="LOCAL" />
+      <updated>1780674540343</updated>
+    </task>
+    <option name="localTasksCounter" value="4" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -103,6 +110,7 @@
   <component name="VcsManagerConfiguration">
     <MESSAGE value="add README.md file" />
     <MESSAGE value="add first entry creating VPC and Task.pdf" />
-    <option name="LAST_COMMIT_MESSAGE" value="add first entry creating VPC and Task.pdf" />
+    <MESSAGE value="add add Webserver, Bastionhost and mysql" />
+    <option name="LAST_COMMIT_MESSAGE" value="add add Webserver, Bastionhost and mysql" />
   </component>
 </project>
