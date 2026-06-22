@@ -185,16 +185,18 @@ Resources:
       UserData:
         Fn::Base64: !Sub |
           #!/bin/bash
-          sudo yum update -y
-          sudo yum install -y httpd
-          amazon-linux-extras enable php8.2
-          sudo amazon-linux-extras install php8.2 mariadb10.5 -y
+          yum update -y
+          yum install -y httpd php wget unzip
+          sudo amazon-linux-extras enable php8.2
           sudo yum clean metadata
-          sudo yum install -y php php-cli php-fpm php-mysqlnd php-pdo php-gd php-mbstring php-xml php-mysqli php-json php-devel php-gd mariadb105-server
-          sudo systemctl start httpd
-          sudo systemctl enable httpd
-          sudo systemctl start mariadb
-          sudo systemctl enable mariadb
+          sudo yum install php php-cli php-fpm php-mysqlnd
+          systemctl enable httpd
+          systemctl start httpd
+          wget https://wordpress.org/latest.tar.gz
+          tar -xzf latest.tar.gz
+          cp -r wordpress/* /var/www/html/
+          chown -R apache:apache /var/www/html
+          systemctl restart httpd
 
       SubnetId: !Ref PublicSubnet1
       SecurityGroupIds:
