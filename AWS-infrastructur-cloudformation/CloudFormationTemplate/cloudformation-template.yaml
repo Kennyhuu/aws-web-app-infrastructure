@@ -20,6 +20,10 @@ Parameters:
   AmazonLinuxAMIID:
     Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
     Default: /aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2
+  PublicKeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the instance
+    Default: vockey
 
 Resources:
 
@@ -156,7 +160,7 @@ Resources:
   AppSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupName: App
+      GroupName: WebServerSG
       GroupDescription: Enable access to App
       VpcId: !Ref LabVPC
       SecurityGroupIngress:
@@ -164,15 +168,34 @@ Resources:
           FromPort: 80
           ToPort: 80
           CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 92.208.111.225/32
       Tags:
         - Key: Name
-          Value: App
+          Value: WebServerSG
 
   Instance:
     Type: AWS::EC2::Instance
     Properties:
       InstanceType: t3.micro
       ImageId: !Ref AmazonLinuxAMIID
+      KeyName: !Ref PublicKeyName
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          sudo yum update -y
+          sudo yum install -y httpd
+          amazon-linux-extras enable php8.2
+          sudo amazon-linux-extras install php8.2 mariadb10.5 -y
+          sudo yum clean metadata
+          sudo yum install -y php php-cli php-fpm php-mysqlnd php-pdo php-gd php-mbstring php-xml php-mysqli php-json php-devel php-gd mariadb105-server
+          sudo systemctl start httpd
+          sudo systemctl enable httpd
+          sudo systemctl start mariadb
+          sudo systemctl enable mariadb
+
       SubnetId: !Ref PublicSubnet1
       SecurityGroupIds:
         - !Ref AppSecurityGroup
