@@ -1,0 +1,83 @@
+DBPassword:
+    Description: Password for the WordPress MariaDB database user
+    Type: String
+    NoEcho: true
+    MinLength: 8
+    MaxLength: 41
+    AllowedPattern: '[a-zA-Z0-9!@#$%^&*()_+=-]+'
+    ConstraintDescription: Must be at least 8 characters and only contain valid alphanumeric or special characters.
+
+
+    Fn::Base64: !Sub |
+          #!/bin/bash
+          # Redirect output to log file for debugging
+          exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
+          
+          echo "=== Starting WordPress Installation ==="
+          
+          # 1. Update and install Apache
+          yum update -y
+          yum install httpd -y
+          
+          # 2. Install PHP 8.2 via Amazon Linux Extras
+          amazon-linux-extras enable php8.2
+          yum clean metadata
+          yum install php php-cli php-mysqlnd php-pdo php-mbstring php-gd php-xml -y
+          
+          # 3. Install MariaDB
+          amazon-linux-extras install mariadb10.5 -y
+          
+          # 4. Start Services
+          systemctl start httpd
+          systemctl enable httpd
+          systemctl start mariadb
+          systemctl enable mariadb
+          
+          # 5. Configure Database Securely
+          # Set temporary Root password and build DB setup script
+          DB_ROOT_PASS=$(openssl rand -base64 12)
+          
+          mysqladmin -u root password "$DB_ROOT_PASS"
+          
+          mysql -u root -p"$DB_ROOT_PASS" <<EOF
+          UPDATE mysql.user SET Password=PASSWORD('$DB_ROOT_PASS') WHERE User='root';
+          DELETE FROM mysql.user WHERE User='';
+          DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');
+          DROP DATABASE IF EXISTS test;
+          DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%';
+          
+          CREATE DATABASE wordpress_db;
+          CREATE USER 'wordpress_user'@'localhost' IDENTIFIED BY '${DBPassword}';
+          GRANT ALL PRIVILEGES ON wordpress_db.* TO 'wordpress_user'@'localhost';
+          FLUSH PRIVILEGES;
+          EOF
+          
+          # 6. Download and Extract WordPress
+          cd /var/www/html
+          wget https://wordpress.org/latest.tar.gz
+          tar -xzf latest.tar.gz
+          mv wordpress/* .
+          rm -rf wordpress latest.tar.gz
+          
+          # 7. Pre-configure wp-config.php so the user skips database setup screens
+          cp wp-config-sample.php wp-config.php
+          sed -i "s/database_name_here/wordpress_db/g" wp-config.php
+          sed -i "s/username_here/wordpress_user/g" wp-config.php
+          sed -i "s/password_here/${DBPassword}/g" wp-config.php
+          
+          # Fetch secure salts directly from WordPress API and inject into config
+          curl -s https://api.wordpress.org/secret-key/1.1/salt/ >> /tmp/wp_salts.txt
+          sed -i '/#@-/,$d' wp-config.php
+          cat /tmp/wp_salts.txt >> wp-config.php
+          echo "define('FS_METHOD', 'direct');" >> wp-config.php
+          
+          # 8. Set correct permissions
+          chown -R apache:apache /var/www/html
+          find /var/www/html -type d -exec chmod 2775 {} \;
+          find /var/www/html -type f -exec chmod 0664 {} \;
+          
+          # 9. Allow .htaccess overrides and restart Apache
+          sed -i '/<Directory "\/var\/www\/html">/,/<\/Directory>/ s/AllowOverride None/AllowOverride All/' /etc/httpd/conf/httpd.conf
+          systemctl restart httpd
+          
+          echo "=== WordPress Installation Completed ==="

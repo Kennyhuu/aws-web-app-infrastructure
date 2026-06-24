@@ -57,3 +57,7 @@ When you no longer need the resources:
 2. Choose the delete option.
 3. Confirm the action.
 4. Wait for the stack to be fully removed.
+
+
+### Some sources
+[AWS CloudFormation: Creating Load Balancer and Auto Scaling Group - Infrastructure as Code](https://medium.com/@ldmishra/aws-cloudformation-creating-load-balancer-and-auto-scaling-group-infrastructure-as-code-883912f7e24d)

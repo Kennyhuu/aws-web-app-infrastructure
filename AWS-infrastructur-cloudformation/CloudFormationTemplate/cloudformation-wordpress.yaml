@@ -1,0 +1,263 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: WordPress Network and Compute Stack (1 Public + 1 Private Subnet)
+
+Parameters:
+  LabVpcCidr:
+    Type: String
+    Default: 10.0.0.0/16
+
+  PublicSubnet1Cidr:
+    Type: String
+    Default: 10.0.1.0/24
+
+  PrivateSubnet1Cidr:
+    Type: String
+    Default: 10.0.11.0/24
+
+  AmazonLinuxAMIID:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+
+  PublicKeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Name of an existing EC2 KeyPair to enable SSH access
+    Default: vockey
+
+  DBName:
+    Type: String
+    Default: wordpress
+
+  DBUser:
+    Type: String
+    Default: wpuser
+
+  DBPassword:
+    Type: String
+    NoEcho: true
+    Default: secret
+    Description: WordPress database password
+  
+  DBUserPassword:
+    Type: String
+    NoEcho: true
+    Default: secret
+    Description: WordPressUser database password
+
+
+Resources:
+
+  #########################################
+  # 1. VPC & GATEWAY (The Foundation)
+  #########################################
+  LabVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref LabVpcCidr
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: Lab VPC
+
+  IGW:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: Lab IGW
+
+  VPCtoIGWConnection:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref IGW
+      VpcId: !Ref LabVPC
+
+
+  #########################################
+  # 2. SUBNETS (The Segmentation)
+  #########################################
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref LabVPC
+      MapPublicIpOnLaunch: true
+      CidrBlock: !Ref PublicSubnet1Cidr
+      AvailabilityZone: !Select [ 0, !GetAZs "" ]
+      Tags:
+        - Key: Name
+          Value: Public Subnet 1
+
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref LabVPC
+      MapPublicIpOnLaunch: false
+      CidrBlock: !Ref PrivateSubnet1Cidr
+      AvailabilityZone: !Select [ 0, !GetAZs "" ]
+      Tags:
+        - Key: Name
+          Value: Private Subnet 1
+
+
+  #########################################
+  # 3. ROUTING (The Traffic Rules)
+  #########################################
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref LabVPC
+      Tags:
+        - Key: Name
+          Value: Public Route Table
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: VPCtoIGWConnection
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref IGW
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicRouteTableAssociation1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet1
+
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref LabVPC
+      Tags:
+        - Key: Name
+          Value: Private Route Table
+
+  PrivateRouteTableAssociation1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      SubnetId: !Ref PrivateSubnet1
+
+
+  #########################################
+  # 4. SECURITY GROUP
+  #########################################
+  AppSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: WebServerSG
+      GroupDescription: Allow HTTP from internet and SSH from admin IP
+      VpcId: !Ref LabVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 92.208.111.225/32
+      Tags:
+        - Key: Name
+          Value: WebServerSG
+
+
+  #########################################
+  # 5. EC2 INSTANCE
+  #########################################
+  Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t3.micro
+      ImageId: !Ref AmazonLinuxAMIID
+      KeyName: !Ref PublicKeyName
+      SubnetId: !Ref PublicSubnet1
+      SecurityGroupIds:
+        - !Ref AppSecurityGroup
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: 20
+            VolumeType: gp3
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euxo pipefail
+          exec > /var/log/wordpress-install.log 2>&1
+
+          # ── 1. System update ──────────────────────────────────────────────
+          dnf update -y
+
+          # ── 2. Install Apache, PHP, MariaDB ──────────────────────────────
+          dnf install -y httpd wget
+          dnf install -y php php-mysqlnd php-fpm php-json php-mbstring php-xml php-gd php-curl
+          dnf install -y mariadb105-server
+
+          # ── 3. Start & enable services ────────────────────────────────────
+          systemctl enable --now httpd
+          systemctl enable --now mariadb
+
+          # ── 4. Secure MariaDB & create WP database ────────────────────────
+          # AL2023 MariaDB uses unix_socket auth — run as root OS user (we are root in UserData)
+          # Set root password
+          mysqladmin -u root password '${DBPassword}'
+
+          # Create DB, user, and grant privileges using -e (no heredoc, avoids !Sub quoting issues)
+          mysql -uroot -p'${DBPassword}' -e "CREATE DATABASE IF NOT EXISTS \`${DBName}\`;"
+          mysql -uroot -p'${DBPassword}' -e "CREATE USER IF NOT EXISTS '${DBUser}'@'localhost' IDENTIFIED BY '${DBUserPassword}';"
+          mysql -uroot -p'${DBPassword}' -e "GRANT ALL PRIVILEGES ON \`${DBName}\`.* TO '${DBUser}'@'localhost';"
+          mysql -uroot -p'${DBPassword}' -e "FLUSH PRIVILEGES;"
+
+          # ── 5. Download & configure WordPress ────────────────────────────
+          cd /tmp
+          wget -q https://wordpress.org/latest.tar.gz
+          tar -xzf latest.tar.gz
+          cp -r wordpress/* /var/www/html/
+          rm -rf wordpress latest.tar.gz
+
+          cd /var/www/html
+          cp wp-config-sample.php wp-config.php
+          sed -i "s/database_name_here/${DBName}/"  wp-config.php
+          sed -i "s/username_here/${DBUser}/"        wp-config.php
+          sed -i "s/password_here/${DBUserPassword}/"    wp-config.php
+
+          # ── 6. Apache config ──────────────────────────────────────────────
+          cat > /etc/httpd/conf.d/wordpress.conf <<'APACHECONF'
+          <VirtualHost *:80>
+              DocumentRoot /var/www/html
+              <Directory /var/www/html>
+                  AllowOverride All
+                  Require all granted
+              </Directory>
+          </VirtualHost>
+          APACHECONF
+
+          # ── 7. Permissions ────────────────────────────────────────────────
+          chown -R apache:apache /var/www/html
+          chmod -R 755 /var/www/html
+          mkdir -p /var/www/html/wp-content/uploads
+          chown apache:apache /var/www/html/wp-content/uploads
+
+          systemctl restart httpd
+
+      Tags:
+        - Key: Name
+          Value: App Server
+
+
+Outputs:
+  WordPressURL:
+    Description: WordPress setup URL
+    Value: !Sub 'http://${Instance.PublicDnsName}'
+
+  PublicIP:
+    Description: Public IP of the EC2 instance
+    Value: !GetAtt Instance.PublicIp
+
+  SSHCommand:
+    Description: SSH into the instance
+    Value: !Sub 'ssh -i ${PublicKeyName}.pem ec2-user@${Instance.PublicDnsName}'
+
+  InstallLog:
+    Description: Monitor install progress on the instance
+    Value: tail -f /var/log/wordpress-install.log

@@ -19,7 +19,11 @@ Parameters:
     Default: 10.0.12.0/24
   AmazonLinuxAMIID:
     Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
-    Default: /aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+  PublicKeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the instance
+    Default: vockey
 
 Resources:
 
@@ -156,7 +160,7 @@ Resources:
   AppSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupName: App
+      GroupName: WebServerSG
       GroupDescription: Enable access to App
       VpcId: !Ref LabVPC
       SecurityGroupIngress:
@@ -164,15 +168,36 @@ Resources:
           FromPort: 80
           ToPort: 80
           CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 92.208.111.225/32
       Tags:
         - Key: Name
-          Value: App
+          Value: WebServerSG
 
   Instance:
     Type: AWS::EC2::Instance
     Properties:
       InstanceType: t3.micro
       ImageId: !Ref AmazonLinuxAMIID
+      KeyName: !Ref PublicKeyName
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          yum update -y
+          yum install -y httpd php wget unzip
+          sudo amazon-linux-extras enable php8.2
+          sudo yum clean metadata
+          sudo yum install php php-cli php-fpm php-mysqlnd
+          systemctl enable httpd
+          systemctl start httpd
+          wget https://wordpress.org/latest.tar.gz
+          tar -xzf latest.tar.gz
+          cp -r wordpress/* /var/www/html/
+          chown -R apache:apache /var/www/html
+          systemctl restart httpd
+
       SubnetId: !Ref PublicSubnet1
       SecurityGroupIds:
         - !Ref AppSecurityGroup
