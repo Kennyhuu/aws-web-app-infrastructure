@@ -155,7 +155,7 @@ Resources:
 
 
   #########################################
-  # 4. EC2 & SECURITYGROUP
+  # 4. EC2 & SECURITY (The Compute)
   #########################################
   AppSecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -187,16 +187,8 @@ Resources:
           #!/bin/bash
           yum update -y
           yum install -y httpd php wget unzip
-          sudo amazon-linux-extras enable php8.2
-          sudo yum clean metadata
-          sudo yum install php php-cli php-fpm php-mysqlnd
           systemctl enable httpd
           systemctl start httpd
-          wget https://wordpress.org/latest.tar.gz
-          tar -xzf latest.tar.gz
-          cp -r wordpress/* /var/www/html/
-          chown -R apache:apache /var/www/html
-          systemctl restart httpd
 
       SubnetId: !Ref PublicSubnet1
       SecurityGroupIds:
@@ -204,3 +196,180 @@ Resources:
       Tags:
         - Key: Name
           Value: App Server
+
+
+  #########################################
+  # 5. LoadBalancer
+  #########################################
+
+  ApplicationLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Scheme: internet-facing
+      Type: application
+      SecurityGroups:
+        - !Ref ALBSecurityGroup
+      Subnets:
+        - !Ref PublicSubnet1
+        - !Ref PublicSubnet2
+
+  ALBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: ALB Security Group
+      VpcId: !Ref LabVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+
+  Ec2TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Port: 80
+      Protocol: HTTP
+      VpcId: !Ref LabVPC
+      HealthCheckPath: /
+      TargetType: instance
+
+  ALBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref Ec2TargetGroup
+
+
+  #########################################
+  # 6. AutoScaling
+  #########################################
+
+  AmiEc2LaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateData:
+        ImageId: !Ref AmazonLinuxAMIID
+        InstanceType: t3.micro
+        KeyName: !Ref PublicKeyName
+
+        SecurityGroupIds:
+          - !Ref AppSecurityGroup
+
+        UserData:
+          Fn::Base64: !Sub |
+            #!/bin/bash
+            dnf update -y
+            dnf install -y httpd php wget tar
+
+            systemctl enable httpd
+            systemctl start httpd
+            
+            TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" \
+              -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
+            
+            INSTANCE_ID=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" \
+              http://169.254.169.254/latest/meta-data/instance-id)
+            
+            PRIVATE_IP=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" \
+              http://169.254.169.254/latest/meta-data/local-ipv4)
+            
+            AZ=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" \
+              http://169.254.169.254/latest/meta-data/placement/availability-zone)
+            
+            HOSTNAME=$(hostname)
+            
+            cat > /var/www/html/index.html <<EOF
+            <h1>ASG Load Balancer Test</h1>
+            <ul>
+              <li>Hostname: $HOSTNAME</li>
+              <li>Instance ID: $INSTANCE_ID</li>
+              <li>Private IP: $PRIVATE_IP</li>
+              <li>Availability Zone: $AZ</li>
+            </ul>
+            EOF
+
+  SecurityGroupIngress:
+    - IpProtocol: tcp
+      FromPort: 80
+      ToPort: 80
+      SourceSecurityGroupId: !Ref ALBSecurityGroup
+
+  Ec2InstanceAutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      MinSize: 2
+      DesiredCapacity: 2
+      MaxSize: 4
+
+      VPCZoneIdentifier:
+        - !Ref PublicSubnet1
+        - !Ref PublicSubnet2
+
+      LaunchTemplate:
+        LaunchTemplateId: !Ref AmiEc2LaunchTemplate
+        Version: !GetAtt AmiEc2LaunchTemplate.LatestVersionNumber
+
+      TargetGroupARNs:
+        - !Ref Ec2TargetGroup
+
+      HealthCheckType: ELB
+      HealthCheckGracePeriod: 300
+
+  ScaleOutPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AutoScalingGroupName: !Ref Ec2InstanceAutoScalingGroup
+      AdjustmentType: ChangeInCapacity
+      ScalingAdjustment: 1
+
+  ScaleInPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AutoScalingGroupName: !Ref Ec2InstanceAutoScalingGroup
+      AdjustmentType: ChangeInCapacity
+      ScalingAdjustment: -1
+
+  #########################################
+  # 6a. Alarm for AutoScaling
+  #########################################
+
+
+  CPUHighAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      MetricName: CPUUtilization
+      Namespace: AWS/EC2
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 70
+      ComparisonOperator: GreaterThanThreshold
+
+      Dimensions:
+        - Name: AutoScalingGroupName
+          Value: !Ref Ec2InstanceAutoScalingGroup
+
+      AlarmActions:
+        - !Ref ScaleOutPolicy
+
+  CPULowAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      MetricName: CPUUtilization
+      Namespace: AWS/EC2
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 30
+      ComparisonOperator: LessThanThreshold
+
+      Dimensions:
+        - Name: AutoScalingGroupName
+          Value: !Ref Ec2InstanceAutoScalingGroup
+
+      AlarmActions:
+        - !Ref ScaleInPolicy
