@@ -54,7 +54,7 @@ VPC (10.0.0.0/16)
 ## Approach 2 — Infrastructure as Code (CloudFormation)
 
 **Folder:** [`AWS-infrastructur-cloudformation/`](./AWS-infrastructur-cloudformation)
-**Guide:** [`AWS-infrastructur-cloudformation/CloudFormationTemplate/README.md`](./AWS-infrastructur-cloudformation/CloudFormationTemplate/README.md)
+**Guide:** [`AWS-infrastructur-cloudformation/CloudFormationTemplate/README.md`](AWS-infrastructur-cloudformation/README.md)
 
 Three CloudFormation templates that automate the infrastructure setup progressively.
 Deployable via the **AWS Toolkit for VS Code**, the **AWS CLI**, or the **AWS Console**.
