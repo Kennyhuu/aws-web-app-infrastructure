@@ -61,3 +61,5 @@ When you no longer need the resources:
 
 ### Some sources
 [AWS CloudFormation: Creating Load Balancer and Auto Scaling Group - Infrastructure as Code](https://medium.com/@ldmishra/aws-cloudformation-creating-load-balancer-and-auto-scaling-group-infrastructure-as-code-883912f7e24d)
+
+[Using CloudFormation with Boto3](https://github.com/Kennyhuu/Boto3PractieKTH/blob/main/cloudformation.py)
